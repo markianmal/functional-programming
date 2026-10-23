@@ -1,20 +1,17 @@
-"""Доменні сутності ресторанного меню (Варіант 12).
-
-Використано @dataclass(frozen=True, slots=True), tuple, frozenset та MappingProxyType.
-"""
-from dataclasses import dataclass
+"""Domain models for restaurant menu (Variant 12)."""
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Mapping, Tuple
 
 
 def make_meta(**kwargs: str) -> MappingProxyType[str, str]:
-    """Створює read-only MappingProxy поверх ізольованої копії словника."""
+    """Create a read-only MappingProxy over an isolated dictionary copy."""
     return MappingProxyType(dict(kwargs))
 
 
 @dataclass(frozen=True, slots=True)
 class Ingredient:
-    """Незмінна модель інгредієнта страви."""
+    """Immutable ingredient representation."""
 
     name: str
     cost: float
@@ -24,38 +21,41 @@ class Ingredient:
         if self.cost < 0:
             raise ValueError("Cost cannot be negative")
         if self.weight_grams <= 0:
-            raise ValueError("Weight must be strictly positive")
+            raise ValueError("Weight must be positive")
 
 
 @dataclass(frozen=True, slots=True)
 class Dish:
-    """Незмінна модель ресторанної страви."""
+    """Immutable dish representation."""
 
     id: int
     name: str
     price: float
-    ingredients: Tuple[Ingredient, ...]
-    allergens: frozenset[str]
-    meta: Mapping[str, str]
+    ingredients: Tuple[Ingredient, ...] = ()
+    allergens: frozenset[str] = frozenset()
+    # mappingproxy не хешується -> виключаємо з hash, але лишаємо в eq
+    meta: Mapping[str, str] = field(
+        default_factory=lambda: make_meta(), hash=False
+    )
 
     def __post_init__(self) -> None:
         if self.price < 0:
             raise ValueError("Price cannot be negative")
         if not isinstance(self.ingredients, tuple):
-            raise TypeError("Field 'ingredients' must be a tuple")
+            raise TypeError("Ingredients must be a tuple")
         if not isinstance(self.allergens, frozenset):
-            raise TypeError("Field 'allergens' must be a frozenset")
+            raise TypeError("Allergens must be a frozenset")
         if not isinstance(self.meta, (MappingProxyType, dict)):
-            raise TypeError("Field 'meta' must be a Mapping")
+            raise TypeError("Meta must be a Mapping")
 
     def total_cost(self) -> float:
-        """Розрахунок собівартості на основі списку інгредієнтів."""
+        """Calculate total prime cost based on ingredients."""
         return sum(item.cost for item in self.ingredients)
 
     def total_weight(self) -> float:
-        """Розрахунок загальної ваги страви в грамах."""
+        """Calculate total dish weight in grams."""
         return sum(item.weight_grams for item in self.ingredients)
 
     def has_allergen(self, allergen: str) -> bool:
-        """Перевірка наявності алергену."""
+        """Check if allergen is present."""
         return allergen.strip().lower() in {a.lower() for a in self.allergens}

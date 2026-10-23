@@ -1,50 +1,69 @@
-"""Чисті функції оновлення (pure updates) та бізнес-логіка меню."""
+"""Pure business functions, immutable updates and utilities (Variant 12)."""
 from collections.abc import Mapping
 from dataclasses import replace
 from functools import lru_cache
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Mapping as TMapping, Union
 
 from model import Dish, Ingredient
 
 
-def add_ingredient(dish: Dish, ingredient: Ingredient) -> Dish:
-    """Pure update: повертає новий об'єкт Dish із доданим інгредієнтом."""
-    new_ingredients = dish.ingredients + (ingredient,)
-    return replace(dish, ingredients=new_ingredients)
+def add_ingredient(
+    dish: Dish,
+    ingredient_or_name: Union[Ingredient, str],
+    cost: float = 0.0,
+    weight_grams: float = 0.0,
+) -> Dish:
+    """Pure update: add ingredient passing either an Ingredient instance or fields."""
+    if isinstance(ingredient_or_name, Ingredient):
+        new_item = ingredient_or_name
+    else:
+        new_item = Ingredient(ingredient_or_name, cost, weight_grams)
+    return replace(dish, ingredients=dish.ingredients + (new_item,))
 
 
 def add_allergen(dish: Dish, allergen: str) -> Dish:
-    """Pure update: повертає новий Dish з доданим алергеном."""
-    cleaned = allergen.strip().lower()
-    new_allergens = dish.allergens | frozenset({cleaned})
+    """Pure update: return a new Dish with allergen added to frozenset."""
+    new_allergens = dish.allergens | frozenset({allergen.strip().lower()})
     return replace(dish, allergens=new_allergens)
 
 
 def update_price(dish: Dish, new_price: float) -> Dish:
-    """Pure update: повертає новий Dish зі зміненою ціною."""
+    """Pure update: return a new Dish with updated price."""
     if new_price < 0:
         raise ValueError("Price cannot be negative")
     return replace(dish, price=new_price)
 
 
-def update_meta(dish: Dish, **new_meta: str) -> Dish:
-    """Pure update: повертає новий Dish з оновленими метаданими."""
+def update_meta(dish: Dish, **new_meta_entries: str) -> Dish:
+    """Pure update: return a new Dish with merged read-only metadata."""
     merged = dict(dish.meta)
-    merged.update(new_meta)
+    merged.update(new_meta_entries)
     return replace(dish, meta=MappingProxyType(merged))
 
 
-def apply_discount(dish: Dish, percent: float) -> Dish:
-    """Pure update: розрахунок акційної ціни без зміни оригіналу."""
-    if not (0.0 <= percent <= 100.0):
-        raise ValueError("Discount must be between 0 and 100 percent")
-    new_price = round(dish.price * (1.0 - percent / 100.0), 2)
-    return replace(dish, price=new_price)
+def with_meta(dish: Dish, **new_meta_entries: str) -> Dish:
+    """Alias for update_meta."""
+    return update_meta(dish, **new_meta_entries)
+
+
+def apply_discount(dish: Dish, discount_percent: float) -> Dish:
+    """Pure update: return a new Dish with discounted price."""
+    if not (0.0 <= discount_percent <= 100.0):
+        raise ValueError("Discount percent must be between 0 and 100")
+    discounted = round(dish.price * (1.0 - discount_percent / 100.0), 2)
+    return replace(dish, price=discounted)
+
+
+def index_by_dish(dishes: tuple[Dish, ...]) -> TMapping[Dish, float]:
+    """Demonstrate dish hashability as dictionary key."""
+    return MappingProxyType(
+        {d: calculate_margin_cached(d.price, d.total_cost()) for d in dishes}
+    )
 
 
 def freeze(obj: Any) -> Any:
-    """Глибоке заморожування вкладених структур даних."""
+    """Deeply freeze nested mutable structures into immutable equivalents."""
     if isinstance(obj, MappingProxyType):
         return obj
     if isinstance(obj, Mapping):
@@ -56,9 +75,9 @@ def freeze(obj: Any) -> Any:
     return obj
 
 
-@lru_cache(maxsize=256)
+@lru_cache(maxsize=1024)
 def calculate_margin_cached(price: float, cost: float) -> float:
-    """Кешований розрахунок маржинальності для чистих значень."""
+    """Cached pure calculation for profit margin."""
     if price <= 0:
         return 0.0
     return round(((price - cost) / price) * 100.0, 2)
