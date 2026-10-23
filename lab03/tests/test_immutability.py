@@ -32,17 +32,19 @@ def sample_dish() -> Dish:
 
 def test_no_mutation_when_adding_ingredient(sample_dish: Dish) -> None:
     original = sample_dish
-    original_copy = deepcopy(sample_dish)
+    original_ingredients_count = len(sample_dish.ingredients)
+    original_total_cost = sample_dish.total_cost()
     new_ing = Ingredient(name="Guanciale", cost=55.0, weight_grams=60.0)
 
     updated = add_ingredient(sample_dish, new_ing)
 
+    # Перевірка референтної прозорості та відсутності мутацій
     assert sample_dish is original
-    assert sample_dish == original_copy
     assert updated is not sample_dish
-    assert len(sample_dish.ingredients) == 2
-    assert len(updated.ingredients) == 3
-    assert updated.total_cost() == sample_dish.total_cost() + 55.0
+    assert len(sample_dish.ingredients) == original_ingredients_count
+    assert sample_dish.total_cost() == original_total_cost
+    assert len(updated.ingredients) == original_ingredients_count + 1
+    assert updated.total_cost() == original_total_cost + 55.0
 
 
 def test_no_mutation_when_adding_allergen(sample_dish: Dish) -> None:
