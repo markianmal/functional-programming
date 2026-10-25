@@ -1,0 +1,30 @@
+[
+  {
+    "title": "   python advanced   ",
+    "category": "  PROGRAMMING ",
+    "students": "12500",
+    "rating": "4.9",
+    "price": "49.99"
+  },
+  {
+    "title": "Machine Learning A-Z",
+    "category": "Data Science",
+    "students": "18200",
+    "rating": "4.85",
+    "price": "89.99"
+  },
+  {
+    "title": "web development bootcamp",
+    "category": "WEB",
+    "students": "25400",
+    "rating": "4.8",
+    "price": "39.99"
+  },
+  {
+    "title": "intro to algorithms",
+    "category": "Computer Science",
+    "students": "3200",
+    "rating": "4.2",
+    "price": "19.99"
+  }
+]
