@@ -5,6 +5,7 @@
 """
 
 from collections.abc import Callable, Iterable
+from functools import partial, reduce
 from typing import TypedDict, TypeVar
 
 A = TypeVar("A")
@@ -21,114 +22,133 @@ class StockItem(TypedDict):
     category: str
 
 
-class ProcessedStockItem(TypedDict):
+class RestockOrder(TypedDict):
     id: int
     name: str
     category: str
-    stock: int
-    min_stock: int
-    price: float
-    total_value: float
-    needs_restock: bool
-    restock_qty: int
+    order_qty: int
+    unit_price: float
+    base_cost: float
+    discounted_cost: float
+    final_cost: float
 
 
-class StockSummary(TypedDict):
-    total_items_count: int
-    total_inventory_value: float
-    categories_summary: dict[str, int]
-    items_needing_restock: list[ProcessedStockItem]
+class RestockReport(TypedDict):
+    items_to_order_count: int
+    total_units_to_order: int
+    total_budget_needed: float
+    orders: list[RestockOrder]
 
 
-# Функції вищого порядку (HOF) та комбінатори
+# Аліаси типів функцій
+NeedRestockFn = Callable[[StockItem], bool]
+RestockQtyFn = Callable[[StockItem], int]
+DiscountFn = Callable[[float, int], float]
+TaxFn = Callable[[float], float]
+ProcessorFn = Callable[[Iterable[StockItem]], RestockReport]
+
+
+# 1. Функції вищого порядку (HOF) та комбінатори
 def map_pure(fn: Callable[[A], B], items: Iterable[A]) -> list[B]:
-    """Чиста версія map, що повертає новий список."""
-    return [fn(item) for item in items]
+    return list(map(fn, items))
 
 
 def filter_pure(pred: Callable[[A], bool], items: Iterable[A]) -> list[A]:
-    """Чиста версія filter, що повертає новий список."""
-    return [item for item in items if pred(item)]
+    return list(filter(pred, items))
 
 
 def compose(f: Callable[[B], C], g: Callable[[A], B]) -> Callable[[A], C]:
-    """Композиція двох функцій: f(g(x))."""
     return lambda x: f(g(x))
 
 
+def multiply_price(multiplier: float, price: float) -> float:
+    return round(price * multiplier, 2)
+
+
 def curried_price_multiplier(multiplier: float) -> Callable[[float], float]:
-    """Каррована функція (каррування / closure) для перерахунку цін."""
-    return lambda price: round(price * multiplier, 2)
+    return partial(multiply_price, multiplier)
 
 
-# Трансформація складських позицій за допомогою лямбд та вищих функцій
-def process_stock_item(item: StockItem) -> ProcessedStockItem:
-    """Перетворює сирий StockItem у розширений ProcessedStockItem без мутацій."""
-    stock = item["stock"]
-    min_stock = item["min_stock"]
-    price = item["price"]
-    needs_restock = stock < min_stock
-    restock_qty = max(0, min_stock - stock)
-    total_value = round(stock * price, 2)
+# 2. Чисті правила та предикати
+def is_below_minimum(item: StockItem) -> bool:
+    return item["stock"] < item["min_stock"]
+
+
+def calc_restock_qty_to_min(item: StockItem) -> int:
+    return max(0, item["min_stock"] - item["stock"])
+
+
+def calc_bulk_discount(base_cost: float, qty: int) -> float:
+    if qty >= 20:
+        return round(base_cost * 0.90, 2)
+    if qty >= 10:
+        return round(base_cost * 0.95, 2)
+    return round(base_cost, 2)
+
+
+def apply_standard_vat(amount: float) -> float:
+    return round(amount * 1.20, 2)
+
+
+# 3. Побудова окремого замовлення без мутацій
+def build_restock_order(
+    item: StockItem,
+    qty: int,
+    apply_discount: DiscountFn,
+    apply_tax: TaxFn,
+) -> RestockOrder:
+    base = round(qty * item["price"], 2)
+    discounted = round(apply_discount(base, qty), 2)
+    final = round(apply_tax(discounted), 2)
 
     return {
         "id": item["id"],
         "name": item["name"],
         "category": item["category"],
-        "stock": stock,
-        "min_stock": min_stock,
-        "price": price,
-        "total_value": total_value,
-        "needs_restock": needs_restock,
-        "restock_qty": restock_qty,
+        "order_qty": qty,
+        "unit_price": item["price"],
+        "base_cost": base,
+        "discounted_cost": discounted,
+        "final_cost": final,
     }
 
 
-def analyze_warehouse(
-    items: Iterable[StockItem],
+# 4. Фабрика обробників дозамовлення
+def make_restock_processor(
     *,
-    category_filter: Callable[[str], bool] | None = None,
-    price_adjuster: Callable[[float], float] | None = None,
-) -> StockSummary:
-    """
-    Аналізує складські запаси за допомогою мапування, фільтрації та генераторів списків.
-    Параметризована функціями-фільтрами та модифікаторами цін.
-    """
-    adjust_price = price_adjuster or (lambda p: p)
+    should_restock: NeedRestockFn = is_below_minimum,
+    calc_qty: RestockQtyFn = calc_restock_qty_to_min,
+    discount_policy: DiscountFn = calc_bulk_discount,
+    tax_policy: TaxFn = apply_standard_vat,
+) -> ProcessorFn:
+    def process(items: Iterable[StockItem]) -> RestockReport:
+        filtered = list(filter(should_restock, items))
 
-    # Нормалізація цін через map
-    adjusted_items: list[StockItem] = map_pure(
-        lambda it: {**it, "price": adjust_price(it["price"])}, items
-    )
+        orders = list(
+            map(
+                lambda item: build_restock_order(
+                    item, calc_qty(item), discount_policy, tax_policy
+                ),
+                filtered,
+            )
+        )
 
-    # Фільтрація за категорією, якщо передано предикат
-    filtered_items = (
-        filter_pure(lambda it: category_filter(it["category"]), adjusted_items)
-        if category_filter
-        else adjusted_items
-    )
+        items_count = len(orders)
+        total_units = reduce(lambda acc, o: acc + o["order_qty"], orders, 0)
+        total_budget = round(
+            reduce(lambda acc, o: acc + o["final_cost"], orders, 0.0), 2
+        )
 
-    # Обробка кожної позиції через чистий map_pure
-    processed_items = map_pure(process_stock_item, filtered_items)
+        return {
+            "items_to_order_count": items_count,
+            "total_units_to_order": total_units,
+            "total_budget_needed": total_budget,
+            "orders": orders,
+        }
 
-    # Використання генераторів списків та агрегацій
-    total_inventory_value = round(
-        sum(item["total_value"] for item in processed_items), 2
-    )
+    return process
 
-    # Фільтрація тих, що потребують дозамовлення
-    needing_restock = filter_pure(lambda it: it["needs_restock"], processed_items)
 
-    # Створення словника підсумків по категоріях через генератор словників
-    categories = {it["category"] for it in processed_items}
-    categories_summary = {
-        cat: sum(1 for it in processed_items if it["category"] == cat)
-        for cat in categories
-    }
-
-    return {
-        "total_items_count": len(processed_items),
-        "total_inventory_value": total_inventory_value,
-        "categories_summary": categories_summary,
-        "items_needing_restock": needing_restock,
-    }
+def process_warehouse_pure(items: Iterable[StockItem]) -> RestockReport:
+    processor = make_restock_processor()
+    return processor(items)

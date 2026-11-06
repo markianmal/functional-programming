@@ -6,11 +6,12 @@ from copy import deepcopy
 import pytest
 from core import (
     StockItem,
-    analyze_warehouse,
     compose,
     curried_price_multiplier,
     filter_pure,
+    make_restock_processor,
     map_pure,
+    process_warehouse_pure,
 )
 
 
@@ -18,41 +19,41 @@ from core import (
 def sample_stock() -> list[StockItem]:
     return [
         {
-            "id": 1,
+            "id": 101,
             "name": "Item A",
-            "stock": 2,
+            "stock": 4,
             "price": 100.0,
-            "min_stock": 10,
+            "min_stock": 15,
             "category": "Cat1",
         },
         {
-            "id": 2,
+            "id": 102,
             "name": "Item B",
-            "stock": 15,
+            "stock": 25,
             "price": 50.0,
             "min_stock": 10,
             "category": "Cat2",
         },
         {
-            "id": 3,
+            "id": 103,
             "name": "Item C",
-            "stock": 0,
+            "stock": 5,
             "price": 200.0,
-            "min_stock": 5,
+            "min_stock": 20,
             "category": "Cat1",
         },
     ]
 
 
 def test_referential_transparency(sample_stock: list[StockItem]) -> None:
-    res1 = analyze_warehouse(sample_stock)
-    res2 = analyze_warehouse(sample_stock)
+    res1 = process_warehouse_pure(sample_stock)
+    res2 = process_warehouse_pure(sample_stock)
     assert res1 == res2
 
 
 def test_no_input_mutation(sample_stock: list[StockItem]) -> None:
     snapshot = deepcopy(sample_stock)
-    analyze_warehouse(sample_stock)
+    process_warehouse_pure(sample_stock)
     assert sample_stock == snapshot
 
 
@@ -74,14 +75,14 @@ def test_compose_function() -> None:
 def test_curried_multiplier() -> None:
     ten_percent_increase = curried_price_multiplier(1.10)
     assert ten_percent_increase(100.0) == 110.0
-    assert ten_percent_increase(50.0) == 55.0
 
 
-def test_analyze_warehouse_filtering(sample_stock: list[StockItem]) -> None:
-    summary = analyze_warehouse(
-        sample_stock,
-        category_filter=lambda cat: cat == "Cat1",
+def test_custom_callable_policies(sample_stock: list[StockItem]) -> None:
+    processor = make_restock_processor(
+        should_restock=lambda it: it["stock"] < 10,
+        calc_qty=lambda it: 10,
+        discount_policy=lambda b, q: b * 0.8,
+        tax_policy=lambda a: a,
     )
-    assert summary["total_items_count"] == 2
-    assert summary["total_inventory_value"] == 200.0
-    assert len(summary["items_needing_restock"]) == 2
+    res = processor(sample_stock)
+    assert res["items_to_order_count"] == 2

@@ -4,51 +4,38 @@
 
 from collections.abc import Callable
 import time
-from core import StockItem, StockSummary, analyze_warehouse, curried_price_multiplier
+from core import StockItem, RestockReport, process_warehouse_pure
 
 
 def get_current_timestamp(time_provider: Callable[[], float] = time.time) -> str:
-    """Форматує поточний час для звіту (з підтримкою інжекції часу для тестів)."""
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time_provider()))
 
 
-def format_summary_report(summary: StockSummary, timestamp: str) -> str:
-    """Форматує аналітичний звіт у консольний текстовий вигляд."""
+def format_report(report: RestockReport, timestamp: str) -> str:
     lines = [
-        "=" * 65,
-        f"ЗВІТ АНАЛІТИКИ СКЛАДСЬКИХ ЗАПАСІВ ({timestamp})",
-        "=" * 65,
-        f"Загальна кількість позицій: {summary['total_items_count']}",
-        f"Загальна вартість товарів на складі: {summary['total_inventory_value']:.2f} грн",
-        "-" * 65,
-        "Розподіл позицій за категоріями:",
+        "=" * 60,
+        f"ЗВІТ З ДОЗАМОВЛЕННЯ СКЛАДСЬКИХ ПОЗИЦІЙ ({timestamp})",
+        "=" * 60,
+        f"{'ID':<4} | {'Назва':<18} | {'К-сть':<6} | {'Разом (з ПДВ)':<12}",
+        "-" * 60,
     ]
-    for cat, count in sorted(summary["categories_summary"].items()):
-        lines.append(f"  * {cat}: {count} шт.")
+    for o in report["orders"]:
+        lines.append(
+            f"{o['id']:<4} | {o['name']:<18} | {o['order_qty']:<6} | {o['final_cost']:<12.2f}"
+        )
 
     lines.extend([
-        "-" * 65,
-        "ПОЗИЦІЇ, ЩО ПОТРЕБУЮТЬ ДОЗАМОВЛЕННЯ:",
-        f"{'ID':<4} | {'Назва':<20} | {'Залишок':<8} | {'Мін.':<6} | {'Дозамовлення':<12}",
-        "-" * 65,
+        "-" * 60,
+        f"Всього позицій на дозамовлення: {report['items_to_order_count']}",
+        f"Загальна кількість одиниць: {report['total_units_to_order']}",
+        f"Необхідний бюджет: {report['total_budget_needed']:.2f} грн",
+        "=" * 60,
     ])
-
-    if not summary["items_needing_restock"]:
-        lines.append("  [Усі позиції в достатній кількості]")
-    else:
-        for item in summary["items_needing_restock"]:
-            lines.append(
-                f"{item['id']:<4} | {item['name']:<20} | {item['stock']:<8} | "
-                f"{item['min_stock']:<6} | {item['restock_qty']:<12}"
-            )
-
-    lines.append("=" * 65)
     return "\n".join(lines)
 
 
 def run_pipeline() -> None:
-    """Запускає повний цикл читання даних, аналізу та виводу."""
-    sample_stock: list[StockItem] = [
+    warehouse_stock: list[StockItem] = [
         {
             "id": 101,
             "name": "ESP32 NodeMCU",
@@ -81,23 +68,7 @@ def run_pipeline() -> None:
             "min_stock": 30,
             "category": "Кабелі",
         },
-        {
-            "id": 105,
-            "name": "Датчик DHT11",
-            "stock": 12,
-            "price": 85.0,
-            "min_stock": 10,
-            "category": "Сенсори",
-        },
     ]
 
-    # Використання HOF / каррування для 10% інфляційної індексації цін
-    inflation_adjuster = curried_price_multiplier(1.10)
-
-    summary = analyze_warehouse(
-        sample_stock,
-        price_adjuster=inflation_adjuster,
-    )
-
-    report_text = format_summary_report(summary, get_current_timestamp())
-    print(report_text)
+    report = process_warehouse_pure(warehouse_stock)
+    print(format_report(report, get_current_timestamp()))
